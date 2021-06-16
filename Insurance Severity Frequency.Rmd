@@ -1,0 +1,123 @@
+---
+title: "STT 459 Project"
+author: "Samson Haile"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(ggplot2)
+```
+
+### Swedish Motor Insurance Severity Frequency
+```{r}
+#rm(list=ls())
+library(numDeriv)
+
+df <- read.csv("SwedishMotorInsurance.csv")
+train <- sample(nrow(df), 2000)
+df.train <- df[train, ]
+df.test <- df[-train, ]
+head(df.train)
+```
+
+
+```{r}
+summary(df)
+```
+
+### Fitting a linear model with Payment as prediction variable
+
+```{r}
+p <- lm(Payment ~. , data = df.train, subset = train)
+summary(p)
+par(mfrow = c(2,3))
+plot(p, col = 'blue')
+```
+
+### Fitting a linear model with Claims as prediction variable
+```{r}
+cl <- lm(Claims ~. , data = df.train, subset = train)
+summary(cl)
+par(mfrow = c(2,3))
+plot(cl, col = 'blue')
+```
+```{r}
+In <- lm(Insured ~. , data = df.train, subset = train)
+summary(In)
+par(mfrow = c(2,3))
+plot(In, col = 'blue')
+```
+
+### Claim Frequency
+```{r}
+Freq <- df.train$Claims
+
+likfreq <- function(param) {
+  lambda <- param[1]
+  loglik <- dpois(Freq, lambda=lambda, log=TRUE)
+  return(-sum(loglik))
+}
+
+op <- nlminb(1, likfreq, lower=10^(-10))
+op$par # 51.86572
+lambda <- op$par[1]
+negativeHessian <- hessian(likfreq,lambda) # 42.07018
+solve(negativeHessian) # 0.02376981
+lambda/nrow(df.train) # Compare with theoretical variance.
+sd <- sqrt(solve(negativeHessian))
+c(lambda-sd*1.96 , lambda+sd*1.96) # 51.56354 52.16790
+
+```
+
+
+### Average Loss Severity
+```{r}
+# from HW3 & 4
+y <- df.train$Payment[df.train$Payment>0] / df.train$Claims[df.train$Payment>0]
+n <- length(y)
+summary(y)
+
+
+# MLE for exponential.
+lik <- function(param) {
+  theta <- param[1]
+  LogLik <- -log(theta) - y/theta
+  return(-sum(LogLik))
+}
+op <- nlminb(1, lik, lower=c(0.0000001))
+op$par
+theta <- op$par[1]
+negativeHessian <- hessian(lik,theta) 
+sd <- sqrt(solve(negativeHessian))
+c(theta-sd*1.96 , theta+sd*1.96)
+exp(op$par)
+
+
+# See how good the fit is.
+hist(y,100,freq=FALSE, main="Distribution fit")
+lines(density(rexp(10^6,rate=1/theta)),col="blue",lwd=2)
+
+
+# Try fitting a gamma distribution to get a better fit.
+lik2 <- function(param) {
+  shape <- param[1]
+  scale <- param[2]
+  LogLik <- dgamma(y, shape=shape, scale=scale, log=TRUE)
+  return(-sum(LogLik))
+}
+op2 <- nlminb(c(1,1), lik2, lower=c(0.0000001,0.0000001))
+op2$par
+
+
+# See how good the fit is for the gamma.
+lines(density(rgamma(10^6, shape=op2$par[1], 
+                     scale=op2$par[2])),col="red",lwd=2)
+legend("topright", c("Exponential","Gamma"), 
+       col=c("blue","red"), lwd=c(2,2))
+
+```
+
+
